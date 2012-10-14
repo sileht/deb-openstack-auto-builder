@@ -1,0 +1,163 @@
+#!/bin/sh
+
+set -e
+#set -x
+
+ESSENTIAL="devscripts git-buildpackage debhelper python-setuptools build-essential fakeroot quilt libwww-perl"
+OSTACK_BUILD_DEPS="python-all python-setuptools-git python-sphinx python-warlock python-nosexcover python-eventlet python-iso8601 python-keyring python-cmd2 python-pyparsing python-py python-virtualenv python-amqplib python-anyjson python-configobj python-gflags pylint python-ldap python-memcache python-migrate python-pam python-passlib python-paste python-pastedeploy python-routes python-webob python-webtest sqlite3 python-boto python-crypto python-kombu python-xattr python-netifaces python-openssl bpython euca2ools ipython python-babel python-carrot python-cheetah python-distutils-extra python-feedparser python-libvirt python-lockfile python-netaddr python-paramiko python-qpid python-suds python-xenapi python-factory-boy python-sqlite python-pyudev python-requests python-daemon python-libxml2 python-pycurl python-sqlalchemy-ext python-mysqldb python-django-nose nodejs-legacy node-less python-dev"
+CLIENTS="keystone glance swift cinder nova" # quantum" # melange
+SRC=sources
+TARGET_FLAVOR=experimental
+DISTRO="debian/${TARGET_FLAVOR}"
+URL="ssh://git.debian.org/git/openstack"
+GIT_BUILD_OPT="-k5FAECC06"
+ARCH=i386 ; if [ `uname -m` = "x86_64" ] ; then ARCH=amd64 ; fi
+
+if ! [ `whoami` = "root" ] ; then
+	SU=sudo
+fi
+
+# Param:
+# $1 path of a debian source folder
+get_deb_version() {
+	MY_TEMP_CWD=`pwd`
+	cd $1
+	PKG_NAME=`dpkg-parsechangelog | grep -E "^Source:" | cut -d" " -f2`
+	DEB_VERS=`dpkg-parsechangelog | grep -E "^Version: " | cut -d" " -f2`
+	NO_EPOC=`echo ${DEB_VERS} | cut -d":" -f2`
+	UPSTREAM_VERS=`echo ${NO_EPOC} | cut -d"-" -f1`
+	ORIG=${PKG_NAME}_${UPSTREAM_VERS}.orig.tar.xz
+	CHANGE=${PKG_NAME}_${NO_EPOC}_${ARCH}.changes
+	cd ${MY_TEMP_CWD}
+}
+
+# Param:
+# $1 package name
+build_it(){
+	mkdir -p ${SRC}/${1}/build-area
+	# Clone if no folder present
+	if [ ! -d ${SRC}/${1}/${1} ] ; then
+		cd ${SRC}/${1}
+
+		git clone ${URL}/${1}.git
+		cd ${1}
+		if [ -n "${DISTRO}" ] ; then
+			git checkout -b ${DISTRO} origin/${DISTRO} || true
+		fi
+		cd ../../..
+	fi
+
+	get_deb_version ${SRC}/${1}/${1}
+
+	cd ${SRC}/${1}/${1}
+	# Make sure we got the orig.tar.xz from upstream
+	if [ ! -f ../${ORIG} ] ; then
+		debian/rules get-vcs-source
+	fi
+	if [ ! -f ../build-area/${ORIG} ] ; then
+		cp ../${ORIG} ../build-area
+	fi
+
+	# Finally build
+	if [ ! -f ../build-area/${CHANGE} ] ; then
+		git-buildpackage ${GIT_BUILD_OPT}
+	fi
+	cd ../../..
+}
+
+# Param:
+# $1 source package name
+# $2 binary package name
+# $3 binary file name
+install_it(){
+	if dpkg -l $2 ; then
+		echo "$2 already installed."
+	else
+		$SU dpkg -i ${SRC}/${1}/build-area/${3}
+	fi
+}
+# Param:
+# $1 source package name
+# $2 binary package name
+install_this(){
+	if dpkg -l $2 ; then
+		echo "$2 already installed."
+	else
+		get_deb_version ${SRC}/${1}/${1}
+		$SU dpkg -i ${SRC}/${1}/build-area/${2}_${NO_EPOC}_all.deb
+	fi
+}
+
+# Install a package which produce only a single binary
+# Param:
+# $1 source package name
+build_and_install (){
+	build_it $1
+	DEB=${1}_${NO_EPOC}_all.deb
+	install_it ${1} ${1} ${DEB}
+}
+
+build_all_clients (){
+	for p in ${CLIENTS} ; do
+		NAME=python-${p}client
+		build_it ${NAME}
+		DEB=${NAME}_${NO_EPOC}_all.deb
+		install_it ${NAME} ${NAME} ${DEB}
+	done
+}
+
+make_repo() {
+	cd ${SRC}
+	for i in * ; do
+		if ! [ "$i" = "debian" ] ; then
+			X=`echo $i | awk '{print substr($0,0,2)}'`
+			TARGET="debian/pool/${TARGET_FLAVOR}/main/${X}/$i"
+			if [ ! -d ${TARGET} ] ; then
+				mkdir -p ${TARGET}
+			fi
+			cp -auxfv $i/build-area/*.deb $i/build-area/*.changes $i/build-area/*.dsc $i/build-area/*.orig.tar.* $i/build-area/*.debian.tar.gz ${TARGET}
+		fi
+	done
+}
+
+$SU apt-get install --no-install-recommends ${ESSENTIAL} ${OSTACK_BUILD_DEPS}
+
+# All of our python modules.
+build_and_install python-tox
+build_and_install python-cliff
+build_and_install python-warlock
+build_it factory-boy
+install_this factory-boy python-factory-boy
+build_it python-django-appconf
+install_this python-django-appconf python-appconf
+build_it python-django-compressor
+install_this python-django-compressor python-compressor
+build_it python-cloudfiles
+install_this python-cloudfiles python-cloudfiles
+
+# All openstack clients but the quantum one
+build_all_clients
+
+# All of openstack projects
+build_it swift
+install_this swift python-swift
+build_it keystone
+install_this keystone python-keystone
+build_it python-quantumclient
+install_this python-quantumclient python-quantumclient
+build_it quantum
+install_this quantum python-quantum
+build_it glance
+install_this glance python-glance
+build_it nova
+install_this nova python-nova
+build_it cinder
+install_this cinder python-cinder
+build_it python-django-openstack-auth
+install_this python-django-openstack-auth python-openstack-auth
+
+build_it horizon
+build_it novnc
+install_this novnc python-novnc
+
+#make_repo
