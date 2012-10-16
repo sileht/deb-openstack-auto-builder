@@ -4,8 +4,9 @@ set -e
 #set -x
 
 ESSENTIAL="devscripts git-buildpackage debhelper python-setuptools build-essential fakeroot quilt libwww-perl"
-OSTACK_BUILD_DEPS="python-all python-setuptools-git python-sphinx python-nosexcover python-eventlet python-iso8601 python-keyring python-cmd2 python-pyparsing python-py python-virtualenv python-amqplib python-anyjson python-configobj python-gflags pylint python-ldap python-memcache python-migrate python-pam python-passlib python-paste python-pastedeploy python-routes python-webob python-webtest sqlite3 python-boto python-crypto python-kombu python-xattr python-netifaces python-openssl bpython euca2ools ipython python-babel python-carrot python-cheetah python-distutils-extra python-feedparser python-libvirt python-lockfile python-netaddr python-paramiko python-qpid python-suds python-xenapi python-sqlite python-pyudev python-requests python-daemon python-libxml2 python-pycurl python-sqlalchemy-ext python-mysqldb python-django-nose nodejs-legacy node-less python-dev python-mock pep8 python-prettytable python-jsonschema python-httplib2 python-mox python-simplejson python-unittest2 python-lxml"
+OSTACK_BUILD_DEPS="python-all python-setuptools-git python-sphinx python-nosexcover python-eventlet python-iso8601 python-keyring python-cmd2 python-pyparsing python-py python-virtualenv python-amqplib python-anyjson python-configobj python-gflags pylint python-ldap python-memcache python-migrate python-pam python-passlib python-paste python-pastedeploy python-routes python-webob python-webtest sqlite3 python-boto python-crypto python-kombu python-xattr python-netifaces python-openssl bpython euca2ools ipython python-babel python-carrot python-cheetah python-distutils-extra python-feedparser python-libvirt python-lockfile python-netaddr python-paramiko python-qpid python-suds python-xenapi python-sqlite python-pyudev python-requests python-daemon python-libxml2 python-pycurl python-sqlalchemy-ext python-mysqldb python-django-nose nodejs-legacy node-less python-dev python-mock pep8 python-prettytable python-jsonschema python-httplib2 python-mox python-simplejson python-unittest2 python-lxml curl"
 CLIENTS="keystone glance swift cinder nova" # quantum" # melange
+#BEFORE_GIT_BUILD_OPTIONS=LC_ALL=C
 SRC=sources
 TARGET_FLAVOR=experimental
 DISTRO="debian/${TARGET_FLAVOR}"
@@ -60,7 +61,7 @@ build_it(){
 
 	# Finally build
 	if [ ! -f ../build-area/${CHANGE} ] ; then
-		git-buildpackage ${GIT_BUILD_OPT}
+		${BEFORE_GIT_BUILD_OPTIONS} git-buildpackage ${GIT_BUILD_OPT}
 	fi
 	cd ../../..
 }
@@ -84,7 +85,11 @@ install_this(){
 		echo "$2 already installed."
 	else
 		get_deb_version ${SRC}/${1}/${1}
-		$SU dpkg -i ${SRC}/${1}/build-area/${2}_${NO_EPOC}_all.deb
+		DEB_FILE=${SRC}/${1}/build-area/${2}_${NO_EPOC}_all.deb
+		if [ ! -f $DEB_FILE ] ; then
+			DEB_FILE=${SRC}/${1}/build-area/${2}_${NO_EPOC}_${ARCH}.deb
+		fi
+		$SU dpkg -i ${DEB_FILE}
 	fi
 }
 
