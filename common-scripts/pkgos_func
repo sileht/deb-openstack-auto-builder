@@ -1,0 +1,131 @@
+#!/bin/sh
+
+# Read the connection directive from a config file
+# and fills the dbc_* variable accordingly,
+# then call dbconfig to do the actual configuration.
+pkgos-dbcc_read_dotconf () {
+	local ADDR BEFORE_AT AFTER_AT SERVER_PORT CONN_STRING PKG_NAME CONF_PATH
+	CONF_PATH=${1}
+	PKG_NAME=${2}
+	CONN_DIRECTIVE=${3}
+
+
+	db_get ${DPKG_MAINTSCRIPT_PACKAGE}/configure_db
+	if [ "$RET" = "true" ] && [ -f /usr/share/dbconfig-common/dpkg/config ] ; then
+		. /usr/share/dbconfig-common/dpkg/config
+		if [ -e "${CONF_PATH}" ] ; then
+			CON_INFO=`grep -E "^([ \t])*${CONN_DIRECTIVE}([ \t])*=([ \t])*" ${CONF_PATH} | awk '{print $3}'`
+		else
+			CON_INFO=""
+		fi
+		PARSED_DB_TYPE=${CONN_STRING%%:*}
+		# If we have an undefined SQL type, we go back to a more sane default (eg: SQLite)
+		case "${PARSED_DB_TYPE}" in
+			sqlite|mysql|pgsql)
+				;;
+			postgresql*)
+				PARSED_DB_TYPE=pgsql
+				;;
+			*)
+				CONN_STRING="sqlite:///var/lib/${PKG_NAME}/${PKG_NAME}db"
+				PARSED_DB_TYPE="sqlite"
+				;;
+		esac
+		if [ "${DB_TYPE}" = "sqlite" ] ; then
+			if [ "${CONN_STRING}" = "sqlite:///${PKG_NAME}.db" ] ; then
+				CONN_STRING="sqlite:///var/lib/${PKG_NAME}/${PKG_NAME}db"
+			fi
+			PARSED_DB_PATH=${CONN_STRING#sqlite://}
+			if [ -z "${PARSED_DB_PATH}" ] ; then
+				PARSED_DB_PATH=/var/lib/${PKG_NAME}/${PKG_NAME}db
+			fi
+			dbc_basepath=`dirname "${PARSED_DB_PATH}"`
+			dbc_dbname=`basename "${PARSED_DB_PATH}"`
+			dbc_dbtypes="sqlite3, mysql, pgsql"
+		else
+			ADDR=${CONN_STRING#*sql://}
+			BEFORE_AT=${ADDR%%@*}
+			SERVER_PORT=${AFTER_AT%%/*}
+
+			PARSED_USER=${BEFORE_AT%%:*}
+			PARSED_PASS=${BEFORE_AT#*:} 
+			PARSED_DB_NAME=${AFTER_AT#*/}
+			PARSED_SERVER=${SERVER_PORT%%:*}
+			case "${SERVER_PORT}" in
+			*:*)
+				PARSED_PORT=${SERVER_PORT#*:}
+				;;
+			*)
+				PARSED_PORT=""
+				;;
+			esac
+			if [ -n "${PARSED_USER}" ] && [ -n "${PARSED_PASS}" ] && [ -n "${PARSED_SERVER}" ] && [ -n "${PARSED_DB_NAME}" ] ; then
+				dbc_dbuser=${PARSED_USER}
+				dbc_dbpass=${PARSED_PASS}
+				dbc_dbserver=${PARSED_SERVER}
+				dbc_dbport=${PARSED_PORT}
+				dbc_dbname=${PARSED_DB_NAME}
+			fi
+			if [ "${PARSED_DB_TYPE}" = "mysql" ] ; then
+				dbc_dbtypes="mysql, pgsql, sqlite3"
+			else
+				dbc_dbtypes="pgsql, mysql, sqlite3"
+			fi
+			db_authmethod_user="password"
+		fi
+	dbc_go ${DPKG_MAINTSCRIPT_PACKAGE} $@
+	fi
+}
+
+# Read values configured by dbconfig-common,
+# and set a connection directive accordingly
+# in a configuration file
+pkgos-dbcc_postinst () {
+	local CONF_PATH CONF_DIR CONF_FNAME PKG_NAME
+	. /usr/share/debconf/confmodule
+
+	CONF_PATH=${1}
+	PKG_NAME=${2}
+	CONN_DIRECTIVE=${3}
+	CONF_DIR=`dirname ${CONF_PATH}`
+	CONF_FNAME=`baseame ${CONF_PATH}`
+
+	# Create config files if they don't exist
+	if [ ! -d ${CONF_DIR} ] ; then
+		install -d -m 0770 -o ${PKG_NAME} -g ${PKG_NAME} ${CONF_DIR}
+	fi
+	if [ ! -e ${CONF_PATH} ] ; then
+		install -D -m 0660 -o ${PKG_NAME} -g ${PKG_NAME} /usr/share/${DPKG_MAINTSCRIPT_PACKAGE}/${CONF_FNAME} ${CONF_PATH}
+	fi
+	db_get ${DPKG_MAINTSCRIPT_PACKAGE}/configure_db
+	if [ "$RET" = "true" ] && [ -r /usr/share/dbconfig-common/dpkg/postinst ] ; then
+		. /usr/share/dbconfig-common/dpkg/postinst
+		db_get ${DPKG_MAINTSCRIPT_PACKAGE}/database-type
+		if [ "$RET" = "sqlite3" ] ; then
+			dbc_name="${PKG_NAME}.sqlite"
+			db_set ${DPKG_MAINTSCRIPT_PACKAGE}/db/dbname $dbc_name
+		fi
+		dbc_dbfile_owner="${PKG_NAME}:${PKG_NAME}"
+		dbc_go ${DPKG_MAINTSCRIPT_PACKAGE} $@
+		if [ "$dbc_install" = "true" ] ; then
+			case "$dbc_dbtype" in
+				mysql)
+					if [ -n "$dbc_dbport" ] ; then
+						dbport=:$dbc_dbport
+					fi
+					SQL_CONNECTION="mysql://$dbc_dbuser:$dbc_dbpass@${dbc_dbserver:-localhost}$dbport/$dbc_dbname"
+					;;
+				postgresql*|pgsql)
+					if [ -n "$dbc_dbport" ] ; then
+						dbport=:$dbc_dbport
+					fi
+					SQL_CONNECTION="postgresql://$dbc_dbuser:$dbc_dbpass@${dbc_dbserver:-localhost}$dbport/$dbc_dbname"
+					;;
+				*)
+					SQL_CONNECTION="sqlite:///$dbc_basepath/$dbc_dbname"
+					;;
+			esac
+			sed -e "s,^[- \t]*${3}[- \t]*=.\+,${3}=$SQL_CONNECTION," -i ${CONF_PATH}
+		fi
+	fi
+}
