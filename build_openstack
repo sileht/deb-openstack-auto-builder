@@ -6,17 +6,18 @@ set -e
 ESSENTIAL="devscripts git-buildpackage debhelper python-setuptools build-essential fakeroot quilt libwww-perl"
 OSTACK_BUILD_DEPS="python-all python-setuptools-git python-sphinx python-nosexcover python-eventlet python-iso8601 python-keyring python-cmd2 python-pyparsing python-py python-virtualenv python-amqplib python-anyjson python-configobj python-gflags pylint python-ldap python-memcache python-migrate python-pam python-passlib python-paste python-pastedeploy python-routes python-webob python-webtest sqlite3 python-boto python-crypto python-kombu python-xattr python-netifaces python-openssl bpython euca2ools ipython python-babel python-carrot python-cheetah python-distutils-extra python-feedparser python-libvirt python-lockfile python-netaddr python-paramiko python-qpid python-suds python-xenapi python-sqlite python-pyudev python-requests python-daemon python-libxml2 python-pycurl python-sqlalchemy-ext python-mysqldb python-django-nose nodejs-legacy node-less python-dev python-mock pep8 python-prettytable python-jsonschema python-httplib2 python-mox python-simplejson python-unittest2 python-lxml curl"
 CLIENTS="keystone glance swift cinder nova" # quantum" # melange
-#BEFORE_GIT_BUILD_OPTIONS=LC_ALL=C
 SRC=sources
+REPO_DEST="repo"
 TARGET_FLAVOR=experimental
 DISTRO="debian/${TARGET_FLAVOR}"
 URL="ssh://git.debian.org/git/openstack"
-GIT_BUILD_OPT="-k0EF14B3F"
-ARCH=i386 ; if [ `uname -m` = "x86_64" ] ; then ARCH=amd64 ; fi
+PGP_SIGN_KEY_ID="0EF14B3F"
+GIT_BUILD_ENV=""
+GIT_BUILD_OPT="-k${PGP_SIGN_KEY_ID}"
+GIT_BUILD_COMMAND="${GIT_BUILD_ENV}git-buildpackage ${GIT_BUILD_OPT}"
 
-if ! [ `whoami` = "root" ] ; then
-	SU=sudo
-fi
+ARCH=i386 ; if [ `uname -m` = "x86_64" ] ; then ARCH=amd64 ; fi
+if ! [ `whoami` = "root" ] ; then SU=sudo ; fi
 
 # Param:
 # $1 path of a debian source folder
@@ -61,7 +62,7 @@ build_it(){
 
 	# Finally build
 	if [ ! -f ../build-area/${CHANGE} ] ; then
-		${BEFORE_GIT_BUILD_OPTIONS} git-buildpackage ${GIT_BUILD_OPT}
+		${GIT_BUILD_COMMAND}
 	fi
 	cd ../../..
 }
@@ -111,19 +112,76 @@ build_all_clients (){
 	done
 }
 
-make_repo() {
+build_openstack () {
+	# All of our python modules.
+	build_and_install python-tox
+	build_and_install python-cliff
+	build_and_install python-warlock
+	build_it factory-boy
+	install_this factory-boy python-factory-boy
+	build_it python-django-appconf
+	install_this python-django-appconf python-appconf
+	build_it python-django-compressor
+	install_this python-django-compressor python-compressor
+	build_it python-cloudfiles
+	install_this python-cloudfiles python-cloudfiles
+
+	# All openstack clients but the quantum one
+	build_all_clients
+
+	# All of openstack projects
+	build_it swift
+	install_this swift python-swift
+	build_it keystone
+	install_this keystone python-keystone
+	build_it python-quantumclient
+	install_this python-quantumclient python-quantumclient
+	build_it quantum
+	install_this quantum python-quantum
+	build_it glance
+	install_this glance python-glance
+	build_it nova
+	install_this nova python-nova
+	build_it cinder
+	install_this cinder python-cinder
+	build_it python-django-openstack-auth
+	install_this python-django-openstack-auth python-openstack-auth
+
+	build_it horizon
+	build_it novnc
+	install_this novnc python-novnc
+}
+
+copy_files_to_repo() {
 	cd ${SRC}
 	for i in * ; do
-		if ! [ "$i" = "debian" ] ; then
-			X=`echo $i | awk '{print substr($0,0,2)}'`
-			TARGET="debian/pool/${TARGET_FLAVOR}/main/${X}/$i"
-			if [ ! -d ${TARGET} ] ; then
-				mkdir -p ${TARGET}
-			fi
-			cp -auxfv $i/build-area/*.deb $i/build-area/*.changes $i/build-area/*.dsc $i/build-area/*.orig.tar.* $i/build-area/*.debian.tar.gz ${TARGET}
+		X=`echo $i | awk '{print substr($0,0,1)}'`
+		TARGET="../${REPO_DEST}/debian/pool/${TARGET_FLAVOR}/main/${X}/$i"
+		if [ ! -d ${TARGET} ] ; then
+			mkdir -p ${TARGET}
 		fi
+		cp -auxfv $i/build-area/*.deb $i/build-area/*.changes $i/build-area/*.dsc $i/build-area/*.orig.tar.* $i/build-area/*.debian.tar.gz ${TARGET}
 	done
+	cd ..
 }
+
+scan_repo() {
+	cd ${REPO_DEST}/debian
+	mkdir -p mkdir -p dists/${TARGET_FLAVOR}/main/binary-${ARCH}
+	dpkg-scanpackages -a ${ARCH} pool/${TARGET_FLAVOR}/main /dev/null > dists/${TARGET_FLAVOR}/main/binary-${ARCH}/Packages
+	gzip -c dists/${TARGET_FLAVOR}/main/binary-${ARCH}/Packages >dists/${TARGET_FLAVOR}/main/binary-${ARCH}/Packages.gz
+	mkdir -p dists/${TARGET_FLAVOR}/main/source
+	dpkg-scansources pool/${TARGET_FLAVOR}/main /dev/null >dists/${TARGET_FLAVOR}/main/source/Sources
+	gzip -c dists/${TARGET_FLAVOR}/main/source/Sources >dists/${TARGET_FLAVOR}/main/source/Sources.gz
+	cd dists/${TARGET_FLAVOR}
+	rm -f Release Release.gpg
+	TMPFILE=`mktemp -t pkgos_scan.XXXXXX`
+	apt-ftparchive release . -o APT::FTPArchive::Release::Origin="GPLHost" -o APT::FTPArchive::Release::Codename="${TARGET_FLAVOR}" > ${TMPFILE}
+	mv ${TMPFILE} ./Release
+	gpg -abs -o Release.gpg Release
+	cd ../../../..
+}
+
 
 check_pgp_key() {
 	if [ ! -d ~/.gnupg ] ; then
@@ -133,43 +191,6 @@ check_pgp_key() {
 
 check_pgp_key
 $SU apt-get install --no-install-recommends ${ESSENTIAL} ${OSTACK_BUILD_DEPS}
-
-# All of our python modules.
-build_and_install python-tox
-build_and_install python-cliff
-build_and_install python-warlock
-build_it factory-boy
-install_this factory-boy python-factory-boy
-build_it python-django-appconf
-install_this python-django-appconf python-appconf
-build_it python-django-compressor
-install_this python-django-compressor python-compressor
-build_it python-cloudfiles
-install_this python-cloudfiles python-cloudfiles
-
-# All openstack clients but the quantum one
-build_all_clients
-
-# All of openstack projects
-build_it swift
-install_this swift python-swift
-build_it keystone
-install_this keystone python-keystone
-build_it python-quantumclient
-install_this python-quantumclient python-quantumclient
-build_it quantum
-install_this quantum python-quantum
-build_it glance
-install_this glance python-glance
-build_it nova
-install_this nova python-nova
-build_it cinder
-install_this cinder python-cinder
-build_it python-django-openstack-auth
-install_this python-django-openstack-auth python-openstack-auth
-
-build_it horizon
-build_it novnc
-install_this novnc python-novnc
-
-#make_repo
+build_openstack
+copy_files_to_repo
+scan_repo
