@@ -150,6 +150,7 @@ build_openstack () {
 	build_it horizon
 	build_it novnc
 	install_this novnc python-novnc
+	build_it cinder
 }
 
 copy_files_to_repo() {
