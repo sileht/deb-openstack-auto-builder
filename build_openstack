@@ -152,6 +152,7 @@ build_openstack_pkgs () {
 	build_it novnc
 	install_this novnc python-novnc
 	build_it cinder
+
 	build_it openstack-meta-packages
 }
 
@@ -163,7 +164,11 @@ copy_files_to_repo() {
 		if [ ! -d ${TARGET} ] ; then
 			mkdir -p ${TARGET}
 		fi
-		cp -auxfv $i/build-area/*.deb $i/build-area/*.changes $i/build-area/*.dsc $i/build-area/*.orig.tar.* $i/build-area/*.debian.tar.gz ${TARGET}
+		if [ -e $i/build-area/*.orig.tar.* ] ; then
+			cp -auxfv $i/build-area/*.deb $i/build-area/*.changes $i/build-area/*.dsc $i/build-area/*.orig.tar.* $i/build-area/*.debian.tar.gz ${TARGET}
+		else
+			cp -auxfv $i/build-area/*.deb $i/build-area/*.changes $i/build-area/*.dsc $i/build-area/*.tar.gz ${TARGET}
+		fi
 	done
 	cd ..
 }
