@@ -28,6 +28,7 @@ get_deb_version() {
 	DEB_VERS=`dpkg-parsechangelog | grep -E "^Version: " | cut -d" " -f2`
 	NO_EPOC=`echo ${DEB_VERS} | cut -d":" -f2`
 	UPSTREAM_VERS=`echo ${NO_EPOC} | cut -d"-" -f1`
+	if [ "${DEB_VERS}" = "${UPSTREAM_VERS}" ] ; then IS_NATIVE="yes" ; else IS_NATIVE="no" ; fi
 	ORIG=${PKG_NAME}_${UPSTREAM_VERS}.orig.tar.xz
 	CHANGE=${PKG_NAME}_${NO_EPOC}_${ARCH}.changes
 	cd ${MY_TEMP_CWD}
@@ -56,7 +57,7 @@ build_it(){
 	if [ ! -f ../${ORIG} ] ; then
 		debian/rules get-vcs-source
 	fi
-	if [ ! -f ../build-area/${ORIG} ] ; then
+	if [ ! -f ../build-area/${ORIG} ] && [ "${IS_NATIVE}" = "no" ] ; then
 		cp ../${ORIG} ../build-area
 	fi
 
@@ -112,7 +113,7 @@ build_all_clients (){
 	done
 }
 
-build_openstack () {
+build_openstack_pkgs () {
 	# All of our python modules.
 	build_and_install python-tox
 	build_and_install python-cliff
@@ -151,6 +152,7 @@ build_openstack () {
 	build_it novnc
 	install_this novnc python-novnc
 	build_it cinder
+	build_it openstack-meta-packages
 }
 
 copy_files_to_repo() {
@@ -192,6 +194,6 @@ check_pgp_key() {
 
 check_pgp_key
 $SU apt-get install --no-install-recommends ${ESSENTIAL} ${OSTACK_BUILD_DEPS}
-build_openstack
+build_openstack_pkgs
 copy_files_to_repo
 scan_repo
