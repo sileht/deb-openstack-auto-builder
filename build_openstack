@@ -130,6 +130,9 @@ build_openstack_pkgs () {
 	# All openstack clients but the quantum one
 	build_all_clients
 
+	build_it openstack-pkg-tools
+	install_this openstack-pkg-tools openstack-pkg-tools
+
 	# All of openstack projects
 	build_it swift
 	install_this swift python-swift
