@@ -155,6 +155,7 @@ build_openstack_pkgs () {
 	build_it novnc
 	install_this novnc python-novnc
 	build_it cinder
+	build_it swift-plugin-s3
 
 	build_it openstack-meta-packages
 }
