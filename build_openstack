@@ -4,7 +4,7 @@ set -e
 #set -x
 
 ESSENTIAL="devscripts git-buildpackage debhelper python-setuptools build-essential fakeroot quilt libwww-perl"
-OSTACK_BUILD_DEPS="python-all python-setuptools-git python-sphinx python-nosexcover python-eventlet python-iso8601 python-keyring python-cmd2 python-pyparsing python-py python-virtualenv python-amqplib python-anyjson python-configobj python-gflags pylint python-ldap python-memcache python-migrate python-pam python-passlib python-paste python-pastedeploy python-routes python-webob python-webtest sqlite3 python-boto python-crypto python-kombu python-xattr python-netifaces python-openssl bpython euca2ools ipython python-babel python-carrot python-cheetah python-distutils-extra python-feedparser python-libvirt python-lockfile python-netaddr python-paramiko python-qpid python-suds python-xenapi python-sqlite python-pyudev python-requests python-daemon python-libxml2 python-pycurl python-sqlalchemy-ext python-mysqldb python-django-nose nodejs-legacy node-less python-dev python-mock pep8 python-prettytable python-jsonschema python-httplib2 python-mox python-simplejson python-unittest2 python-lxml curl"
+OSTACK_BUILD_DEPS="python-all python-setuptools-git python-sphinx python-nosexcover python-eventlet python-iso8601 python-keyring python-cmd2 python-pyparsing python-py python-virtualenv python-amqplib python-anyjson python-configobj python-gflags pylint python-ldap python-memcache python-migrate python-pam python-passlib python-paste python-pastedeploy python-routes python-webob python-webtest sqlite3 python-boto python-crypto python-kombu python-xattr python-netifaces python-openssl bpython euca2ools ipython python-babel python-carrot python-cheetah python-distutils-extra python-feedparser python-libvirt python-lockfile python-netaddr python-paramiko python-qpid python-suds python-xenapi python-sqlite python-pyudev python-requests python-daemon python-libxml2 python-pycurl python-sqlalchemy-ext python-mysqldb python-django-nose nodejs-legacy node-less python-dev python-mock pep8 python-prettytable python-jsonschema python-httplib2 python-mox python-simplejson python-unittest2 python-lxml curl python-all-dev python-flask python-ming python-stevedore"
 CLIENTS="keystone glance swift cinder nova" # quantum" # melange
 SRC=sources
 REPO_DEST="repo"
@@ -114,6 +114,7 @@ build_all_clients (){
 }
 
 build_openstack_pkgs () {
+	build_and_install openstack-pkg-tools
 	# All of our python modules.
 	build_and_install python-tox
 	build_and_install python-cliff
@@ -129,9 +130,6 @@ build_openstack_pkgs () {
 
 	# All openstack clients but the quantum one
 	build_all_clients
-
-	build_it openstack-pkg-tools
-	install_this openstack-pkg-tools openstack-pkg-tools
 
 	# All of openstack projects
 	build_it swift
