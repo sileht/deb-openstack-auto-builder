@@ -7,14 +7,61 @@ ESSENTIAL="devscripts git-buildpackage debhelper python-setuptools build-essenti
 OSTACK_BUILD_DEPS="python-all python-setuptools-git python-sphinx python-nosexcover python-eventlet python-iso8601 python-keyring python-cmd2 python-pyparsing python-py python-virtualenv python-amqplib python-anyjson python-configobj python-gflags pylint python-ldap python-memcache python-migrate python-pam python-passlib python-paste python-pastedeploy python-routes python-webob python-webtest sqlite3 python-boto python-crypto python-kombu python-xattr python-netifaces python-openssl bpython euca2ools ipython python-babel python-carrot python-cheetah python-distutils-extra python-feedparser python-libvirt python-lockfile python-netaddr python-paramiko python-qpid python-suds python-xenapi python-sqlite python-pyudev python-requests python-daemon python-libxml2 python-pycurl python-sqlalchemy-ext python-mysqldb python-django-nose nodejs-legacy node-less python-dev python-mock pep8 python-prettytable python-jsonschema python-httplib2 python-mox python-simplejson python-unittest2 python-lxml curl python-all-dev python-flask python-ming python-stevedore"
 CLIENTS="keystone glance swift cinder nova" # quantum" # melange
 SRC=sources
-REPO_DEST="repo"
+REPO_DEST="/srv/repo"
 TARGET_FLAVOR=experimental
 DISTRO="debian/${TARGET_FLAVOR}"
-URL="ssh://git.debian.org/git/openstack"
-PGP_SIGN_KEY_ID="0EF14B3F"
+URL="git://anonscm.debian.org/openstack"
+#PGP_SIGN_KEY_ID="0EF14B3F"
+PGP_SIGN_KEY_ID="0BDF6CE8"
 GIT_BUILD_ENV=""
 GIT_BUILD_OPT="-k${PGP_SIGN_KEY_ID}"
 GIT_BUILD_COMMAND="${GIT_BUILD_ENV}git-buildpackage ${GIT_BUILD_OPT}"
+
+export REPREPRO_BASE_DIR=$REPO_DEST/debian/
+export DEB_BUILD_OPTIONS="parallel=2 nocheck"
+
+prepare_reprepro(){
+mkdir -p $REPREPRO_BASE_DIR/conf/
+cat > $REPREPRO_BASE_DIR/conf/distributions <<EOF
+Origin: Mehdi ABAAKOUK <mehdi.abaakouk@enovance.com>
+Label: Mehdi ABAAKOUK <mehdi.abaakouk@enovance.com>
+Codename: sid
+Suite: unstable
+Architectures: amd64 source
+Components: main
+Description: cloudwatt debian archive
+Tracking: minimal
+
+Origin: Mehdi ABAAKOUK <mehdi.abaakouk@enovance.com>
+Label: Mehdi ABAAKOUK <mehdi.abaakouk@enovance.com>
+Codename: squeeze
+Suite: stable
+Architectures: amd64 source
+Components: main
+Description: cloudwatt debian archive
+Tracking: minimal
+
+Origin: Mehdi ABAAKOUK <mehdi.abaakouk@enovance.com>
+Label: Mehdi ABAAKOUK <mehdi.abaakouk@enovance.com>
+Codename: experimental
+Suite: experimental
+Architectures: amd64 source
+Components: main
+Description: cloudwatt debian archive
+Tracking: minimal
+
+Origin: Mehdi ABAAKOUK <mehdi.abaakouk@enovance.com>
+Label: Mehdi ABAAKOUK <mehdi.abaakouk@enovance.com>
+Codename: wheezy
+Suite: testing
+Architectures: amd64 source
+Components: main
+Description: cloudwatt debian archive
+Tracking: minimal
+EOF
+#SignWith: EC0FC7E8
+reprepro -V check
+}
 
 ARCH=i386 ; if [ `uname -m` = "x86_64" ] ; then ARCH=amd64 ; fi
 if ! [ `whoami` = "root" ] ; then SU=sudo ; fi
@@ -31,6 +78,7 @@ get_deb_version() {
 	if [ "${DEB_VERS}" = "${UPSTREAM_VERS}" ] ; then IS_NATIVE="yes" ; else IS_NATIVE="no" ; fi
 	ORIG=${PKG_NAME}_${UPSTREAM_VERS}.orig.tar.xz
 	CHANGE=${PKG_NAME}_${NO_EPOC}_${ARCH}.changes
+    DSC=${PKG_NAME}_${NO_EPOC}.dsc
 	cd ${MY_TEMP_CWD}
 }
 
@@ -65,6 +113,10 @@ build_it(){
 	if [ ! -f ../build-area/${CHANGE} ] ; then
 		${GIT_BUILD_COMMAND}
 	fi
+    reprepro -V remove experimental $PKG_NAME
+    reprepro -V removesrc experimental $PKG_NAME
+    reprepro -V includedsc experimental ../build-area/${DSC}
+    reprepro -V includedeb experimental ../build-area/*.deb
 	cd ../../..
 }
 
@@ -73,11 +125,11 @@ build_it(){
 # $2 binary package name
 # $3 binary file name
 install_it(){
-	if dpkg -l $2 ; then
-		echo "$2 already installed."
-	else
+	#if dpkg -l $2 ; then
+	#	echo "$2 already installed."
+	#else
 		$SU dpkg -i ${SRC}/${1}/build-area/${3}
-	fi
+	#fi
 }
 # Param:
 # $1 source package name
@@ -159,10 +211,10 @@ build_openstack_pkgs () {
 }
 
 copy_files_to_repo() {
-	cd ${SRC}
+    cd ${SRC}
 	for i in * ; do
 		X=`echo $i | awk '{print substr($0,0,1)}'`
-		TARGET="../${REPO_DEST}/debian/pool/${TARGET_FLAVOR}/main/${X}/$i"
+		TARGET="${REPO_DEST}/debian/pool/${TARGET_FLAVOR}/main/${X}/$i"
 		if [ ! -d ${TARGET} ] ; then
 			mkdir -p ${TARGET}
 		fi
@@ -199,8 +251,9 @@ check_pgp_key() {
 	fi
 }
 
+prepare_reprepro
 check_pgp_key
 $SU apt-get install --no-install-recommends ${ESSENTIAL} ${OSTACK_BUILD_DEPS}
 build_openstack_pkgs
-copy_files_to_repo
-scan_repo
+#copy_files_to_repo
+#scan_repo
